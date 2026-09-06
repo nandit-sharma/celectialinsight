@@ -24,12 +24,12 @@ async function startMCPServer() {
             description:
                 "Find suitable astrologers based on the user's consultation intent.",
             inputSchema: z.object({
-                intent: z.string().describe(
-                    "The user's consultation intent, such as career, business, finance, or relationship."
+                intents: z.array(z.string()).describe(
+                    "The user's consultation intents, such as career, business, finance, or relationship."
                 )
             })
         },
-        async ({ intent }) => {
+        async ({ intents }) => {
 
             const { data, error } = await supabase
                 .from("astrologers")
@@ -47,7 +47,7 @@ async function startMCPServer() {
                 };
             }
 
-            const rankedAstrologers = rankAstrologers(data, intent);
+            const rankedAstrologers = rankAstrologers(data, intents);
 
             return {
                 content: [
@@ -167,7 +167,50 @@ async function startMCPServer() {
             };
         }
     );
+    server.registerTool(
+    "cancel_consultation",
+    {
+        description:
+            "Cancel a scheduled consultation using its consultation ID.",
+        inputSchema: z.object({
+            consultation_id: z.string().describe(
+                "UUID of the consultation to cancel."
+            )
+        })
+    },
+    async ({ consultation_id }) => {
 
+        const { data, error } = await supabase
+            .from("consultations")
+            .update({
+                status: "cancelled"
+            })
+            .eq("id", consultation_id)
+            .select()
+            .single();
+
+        if (error) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: `Database error: ${error.message}`
+                    }
+                ],
+                isError: true
+            };
+        }
+
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: JSON.stringify(data, null, 2)
+                }
+            ]
+        };
+    }
+);
 
 
 
