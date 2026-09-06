@@ -14,7 +14,8 @@ const conversationState = {
     selectedAstrologerId: null,
     scheduledAt: null,
     problem: null,
-    stage: "initial"
+    stage: "initial",
+    activeConsultations: []
 };
 
 
@@ -56,6 +57,122 @@ async function runAgent(userMessage) {
     console.log("\nAgent started.");
     console.log("User:", userMessage);
 
+    // Handle cancellation request
+if (
+    conversationState.stage === "initial" &&
+    ["cancel", "cancel consultation", "cancel booking"].includes(
+        userMessage.toLowerCase().trim()
+    )
+) {
+    console.log("\nAgent decided to find active consultations...");
+
+    const result = await client.callTool({
+        name: "get_active_consultations",
+        arguments: {
+            user_id: TEST_USER_ID
+        }
+    });
+
+    if (result.isError) {
+        console.log("\nAI:");
+        console.log("I couldn't retrieve your active consultations.");
+        return;
+    }
+
+    const consultations = JSON.parse(
+        result.content[0].text
+    );
+
+    if (consultations.length === 0) {
+        console.log("\nAI:");
+        console.log("You don't have any active consultations to cancel.");
+        return;
+    }
+
+    conversationState.activeConsultations = consultations;
+    conversationState.stage = "cancelling";
+
+    console.log("\nAI:");
+    console.log("Which consultation would you like to cancel?\n");
+
+    consultations.forEach((consultation, index) => {
+
+        const astrologer =
+            consultation.astrologers?.name || "Unknown astrologer";
+
+        const specialization =
+            consultation.astrologers?.specialization || "";
+
+        console.log(
+            `${index + 1}. ${astrologer} — ${specialization}`
+        );
+
+        console.log(
+            `   Date: ${consultation.scheduled_at}`
+        );
+
+        console.log(
+            `   Booking ID: ${consultation.id}\n`
+        );
+    });
+
+    console.log("Please enter the number of the consultation.");
+    return;
+}
+// Handle consultation selection for cancellation
+if (conversationState.stage === "cancelling") {
+
+    const selectedNumber = parseInt(userMessage.trim());
+
+    if (
+        isNaN(selectedNumber) ||
+        selectedNumber < 1 ||
+        selectedNumber > conversationState.activeConsultations.length
+    ) {
+        console.log("\nAI:");
+        console.log(
+            `Please enter a number between 1 and ${conversationState.activeConsultations.length}.`
+        );
+        return;
+    }
+
+    const selectedConsultation =
+        conversationState.activeConsultations[selectedNumber - 1];
+
+    console.log("\nAgent decided to call cancel_consultation...");
+
+    const cancelResult = await client.callTool({
+        name: "cancel_consultation",
+        arguments: {
+            consultation_id: selectedConsultation.id
+        }
+    });
+
+    console.log("\nMCP cancellation result:");
+    console.log(cancelResult);
+
+    if (cancelResult.isError) {
+        console.log("\nAI:");
+        console.log(
+            "I couldn't cancel that consultation. Please try again."
+        );
+        return;
+    }
+
+    conversationState.stage = "initial";
+    conversationState.activeConsultations = [];
+
+    const astrologer =
+        selectedConsultation.astrologers?.name ||
+        "the astrologer";
+
+    console.log("\nAI:");
+    console.log(
+        `Your consultation with ${astrologer} has been cancelled successfully.`
+    );
+
+    return;
+}
 
     // --------------------------------------------------
     // STAGE 1: INITIAL USER MESSAGE

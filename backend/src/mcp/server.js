@@ -211,7 +211,51 @@ async function startMCPServer() {
         };
     }
 );
+    server.registerTool(
+    "get_active_consultations",
+    {
+        description:
+            "Retrieve all active consultations for a user.",
+        inputSchema: z.object({
+            user_id: z.string().describe(
+                "UUID of the user whose active consultations should be retrieved."
+            )
+        })
+    },
+    async ({ user_id }) => {
 
+        const { data, error } = await supabase
+            .from("consultations")
+            .select(`
+                *,
+                astrologers(name, specialization)
+            `)
+            .eq("user_id", user_id)
+            .eq("status", "pending")
+            .order("scheduled_at", { ascending: true });
+
+        if (error) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: `Database error: ${error.message}`
+                    }
+                ],
+                isError: true
+            };
+        }
+
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: JSON.stringify(data, null, 2)
+                }
+            ]
+        };
+    }
+);
 
 
 
