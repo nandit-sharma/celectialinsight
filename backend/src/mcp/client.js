@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const readline = require("readline");
 const { askLLM } = require("../services/ai");
+const { retrieveKnowledge } = require("../services/retrieval");
 const TEST_USER_ID = process.env.TEST_USER_ID;
 
 // --------------------------------------------------
@@ -44,7 +45,98 @@ async function createMCPClient() {
 
     return client;
 }
+// --------------------------------------------------
+// CONVERSATIONAL MESSAGE HANDLER
+// --------------------------------------------------
 
+async function handleConversationalMessage(userMessage) {
+
+    const analysis = await askLLM(`
+You are the conversation classifier for Celestial Insight.
+
+Classify the user's message into exactly ONE category:
+
+greeting
+thanks
+goodbye
+casual
+consultation
+
+Definitions:
+
+- greeting = hello, hi, hey, good morning, good evening, etc.
+- thanks = thank you, thanks, appreciate it, etc.
+- goodbye = bye, goodbye, see you, good night, etc.
+- casual = general conversation that is not a consultation request
+- consultation = the user is asking for astrology guidance or describing a personal problem they want help with
+
+Return ONLY valid JSON:
+
+{
+  "type": "greeting"
+}
+
+User message:
+"${userMessage}"
+`);
+
+    console.log("\nConversation classification:");
+    console.log(analysis);
+
+    if (analysis.type === "greeting") {
+        console.log("\nAI:");
+        console.log(
+            "Hello! How can I help you today?"
+        );
+        return true;
+    }
+
+    if (analysis.type === "thanks") {
+        console.log("\nAI:");
+        console.log(
+            "You're very welcome! I'm here if you need any further help."
+        );
+        return true;
+    }
+
+    if (analysis.type === "goodbye") {
+        console.log("\nAI:");
+        console.log(
+            "Goodbye! Take care, and feel free to come back whenever you need guidance."
+        );
+        return true;
+    }
+
+    if (analysis.type === "casual") {
+
+        const response = await askLLM(`
+You are the conversational assistant for Celestial Insight.
+
+Respond naturally and briefly to the user's message.
+
+Do not start an astrology consultation unless the user actually asks for one.
+
+Keep the conversation friendly and open.
+
+Return ONLY valid JSON:
+
+{
+  "response": "your response"
+}
+
+User:
+"${userMessage}"
+`);
+
+        console.log("\nAI:");
+        console.log(response.response);
+
+        return true;
+    }
+
+    // consultation → let the normal agent flow handle it
+    return false;
+}
 
 // --------------------------------------------------
 // MAIN AGENT
@@ -56,6 +148,35 @@ async function runAgent(userMessage) {
 
     console.log("\nAgent started.");
     console.log("User:", userMessage);
+        // --------------------------------------------------
+    // HANDLE GENERAL CONVERSATION
+    // --------------------------------------------------
+
+    if (
+        conversationState.stage === "initial" ||
+        conversationState.stage === "completed"
+    ) {
+
+        const handled =
+            await handleConversationalMessage(userMessage);
+
+        if (handled) {
+            return;
+        }
+
+        // If the previous conversation was completed
+        // and the user starts a new consultation,
+        // reset the relevant state.
+        if (conversationState.stage === "completed") {
+            conversationState.intents = [];
+            conversationState.selectedAstrologer = null;
+            conversationState.selectedAstrologerId = null;
+            conversationState.scheduledAt = null;
+            conversationState.problem = null;
+            conversationState.activeConsultations = [];
+            conversationState.stage = "initial";
+        }
+    }
 
     // Handle cancellation request
 if (
@@ -263,6 +384,24 @@ ${userMessage}
         conversationState.intents = analysis.intents;
         conversationState.problem = userMessage;
 
+        const knowledgeChunks = await retrieveKnowledge(userMessage, 3);
+
+        console.log("\nRAG retrieved knowledge:");
+
+        knowledgeChunks.forEach((chunk, index) => {
+            console.log(`\n--- RAG Result ${index + 1} ---`);
+            console.log("Title:", chunk.title);
+            console.log("Category:", chunk.category);
+            console.log("Similarity:", chunk.similarity);
+            console.log("Content:", chunk.content);
+        });
+
+        const knowledgeContext = knowledgeChunks
+            .map((chunk, index) => {
+                return `Source ${index + 1}: ${chunk.title}\n${chunk.content}`;
+            })
+            .join("\n\n");
+
 
         // --------------------------------------------------
         // CALL MCP
@@ -329,6 +468,12 @@ Specialization: ${selectedAstrologer.specialization}
 Experience: ${selectedAstrologer.experience_years} years
 Rating: ${selectedAstrologer.rating}
 Match score: ${selectedAstrologer.match_score}
+KNOWLEDGE CONTEXT:
+${knowledgeContext}
+
+
+Use the knowledge context when relevant to the user's problem.
+Do not invent astrology facts that are not supported by the knowledge context.
 
 Recommend this astrologer naturally.
 

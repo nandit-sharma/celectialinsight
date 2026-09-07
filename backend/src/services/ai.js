@@ -56,8 +56,45 @@ ${message}
 `);
 }
 
+const { retrieveKnowledge } = require("./retrieval");
 
+async function generateRAGResponse(question) {
+    const chunks = await retrieveKnowledge(question, 3);
+
+    const context = chunks
+        .map((chunk, index) => {
+            return `Source ${index + 1}: ${chunk.title}\n${chunk.content}`;
+        })
+        .join("\n\n");
+
+    const prompt = `
+You are the knowledge-grounded response component of Celestial Insight.
+
+Answer the user's question using the provided knowledge context.
+
+IMPORTANT:
+- Use the context as your primary source of domain information.
+- Do not invent facts that are not supported by the context.
+- If the context does not contain enough information, say so.
+- Keep the answer concise and understandable.
+
+KNOWLEDGE CONTEXT:
+${context}
+
+USER QUESTION:
+${question}
+
+Return valid JSON in exactly this format:
+
+{
+  "answer": "Your answer here."
+}
+`;
+
+    return askLLM(prompt);
+}
 module.exports = {
     askLLM,
-    analyzeUserMessage
+    analyzeUserMessage,
+    generateRAGResponse
 };
