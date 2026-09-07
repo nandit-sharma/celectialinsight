@@ -1,6 +1,7 @@
+const { runAgent } = require("./mcp/client");
 const express = require("express");
-const cors = require("cors");
 require("dotenv").config();
+const cors = require("cors");
 const { rankAstrologers } = require("./services/matching");
 const supabase = require("./config/supabase");
 
@@ -148,7 +149,31 @@ app.get("/api/astrologers/match", async (req, res) => {
         recommendations: rankedAstrologers
     });
 });
+app.post("/api/chat", async (req, res) => {
 
+    const { message } = req.body;
+
+    if (!message) {
+        return res.status(400).json({
+            error: "Message is required"
+        });
+    }
+
+    try {
+
+        const result = await runAgent(message);
+
+        res.json(result);
+
+    } catch (error) {
+
+        console.error("Chat error:", error);
+
+        res.status(500).json({
+            error: "Failed to process message"
+        });
+    }
+});
 
 
 
